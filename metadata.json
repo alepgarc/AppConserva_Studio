@@ -1,0 +1,11 @@
+{
+  "name": "Rodovia Smart",
+  "description": "Sistema de Conservação Rodoviária & IA Multimodal para equipes de campo e engenheiros fiscais",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

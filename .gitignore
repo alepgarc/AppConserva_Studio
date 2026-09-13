@@ -1,0 +1,18 @@
+# Python & Ambientes Virtuais
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Segredos e Chaves de API (NUNCA COMMITE ESTES ARQUIVOS)
+.env
+serviceAccountKey.json
+.streamlit/secrets.toml
+
+# Arquivos temporários e relatórios gerados
+*.docx
+*.zip
+temp_*
+.pytest_cache/

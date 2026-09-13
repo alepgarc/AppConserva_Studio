@@ -1,0 +1,12 @@
+{
+  "name": "appconserva",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rodovia Smart: Sistema de Conservação Rodoviária & IA Multimodal em Python/Streamlit",
+  "scripts": {
+    "dev": "streamlit run app.py --server.port 3000 --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false",
+    "build": "python3 -m py_compile app.py",
+    "start": "streamlit run app.py --server.port 3000 --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false",
+    "lint": "python3 -m py_compile app.py"
+  }
+}
