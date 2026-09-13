@@ -695,14 +695,6 @@ with st.sidebar:
     st.divider()
     st.caption("Desenvolvido para Concessões e Órgãos Rodoviários.")
 
-# Alerta de Modo Demonstração (desaparece quando o Firebase conecta via st.secrets)
-if db_firestore is None:
-    st.warning(
-        "⚠️ **Modo Demonstração Ativo**: O Firebase não está conectado à nuvem. "
-        "Para ativar a sincronização em tempo real e remover este aviso, configure as credenciais em `st.secrets['firebase']` "
-        "(consulte `.streamlit/secrets.toml.example`)."
-    )
-
 # Abas Principais da Aplicação
 tab_campo, tab_escritorio, tab_indicadores = st.tabs(["🚜 Aba Campo", "💻 Aba Escritório", "📊 Indicadores & Mapa"])
 
