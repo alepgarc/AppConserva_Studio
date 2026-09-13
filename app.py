@@ -663,9 +663,12 @@ registros = obter_registros()
 
 # Barra lateral de Navegação & Status
 with st.sidebar:
-    st.image("https://images.unsplash.com/photo-1545459720-aac8509eb02c?w=400&q=80", use_container_width=True)
+    caminho_logo = "logo-eprparana-card.png" if os.path.exists("logo-eprparana-card.png") else (
+        "logo-eprparana.png" if os.path.exists("logo-eprparana.png") else "https://eprparana.com.br/wp-content/uploads/2026/01/logo-eprparana.png"
+    )
+    st.image(caminho_logo, use_container_width=True)
     st.title("🛣️ Rodovia Smart")
-    st.caption("Sistema de Conservação Rodoviária & IA Multimodal")
+    st.caption("Sistema de Conservação Rodoviária & IA Multimodal • EPR Paraná")
 
     st.divider()
 
