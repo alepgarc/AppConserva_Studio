@@ -12,7 +12,7 @@ import time
 import base64
 import zipfile
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 import streamlit as st
 import pandas as pd
@@ -196,6 +196,144 @@ def _gerar_imagem_placeholder_base64(tipo: str, titulo: str, subtitulo: str) -> 
 
 
 # ==========================================
+# UTILITÁRIOS DE CONVERSÃO DE COORDENADAS (DMS)
+# ==========================================
+def decimal_para_dms_componentes(val: Any, is_lat: bool = True) -> Tuple[int, int, float, str]:
+    """
+    Converte graus decimais para componentes DMS: (graus, minutos, segundos, hemisfério).
+    Ex: -25.428412 -> (25, 25, 42.3, "S")
+    """
+    try:
+        v = float(val)
+    except (ValueError, TypeError):
+        return (0, 0, 0.0, "S" if is_lat else "O")
+
+    hemisferio = ("S" if v < 0 else "N") if is_lat else ("O" if v < 0 else "L")
+    v_abs = abs(v)
+    graus = int(v_abs)
+    resto_min = (v_abs - graus) * 60
+    minutos = int(resto_min)
+    segundos = (resto_min - minutos) * 60
+
+    if round(segundos, 1) >= 60.0:
+        segundos = 0.0
+        minutos += 1
+        if minutos >= 60:
+            minutos = 0
+            graus += 1
+
+    return (graus, minutos, round(segundos, 1), hemisferio)
+
+
+def dms_componentes_para_decimal(graus: int, minutos: int, segundos: float, hemisferio: str) -> float:
+    """
+    Converte componentes DMS (graus, minutos, segundos, hemisfério) para graus decimais com sinal.
+    """
+    try:
+        g = float(graus)
+        m = float(minutos)
+        s = float(segundos)
+    except (ValueError, TypeError):
+        return 0.0
+
+    dec = g + (m / 60.0) + (s / 3600.0)
+    if str(hemisferio).upper() in ["S", "O", "W"]:
+        dec = -dec
+    return round(dec, 6)
+
+
+def dms_str_para_decimal(texto: str, is_lat: bool = True) -> Optional[float]:
+    """Converte fragmento de texto DMS para valor decimal."""
+    if not texto:
+        return None
+    texto = texto.strip()
+    try:
+        return float(texto.replace(",", "."))
+    except ValueError:
+        pass
+
+    cardinal = None
+    letters = re.findall(r"[NSLOEWnsloew]", texto)
+    if letters:
+        cardinal = letters[-1].upper()
+
+    nums = re.findall(r"\d+(?:[.,]\d+)?", texto)
+    if len(nums) >= 3:
+        deg = float(nums[0])
+        minute = float(nums[1])
+        sec = float(nums[2].replace(",", "."))
+        dec = deg + (minute / 60.0) + (sec / 3600.0)
+        if cardinal:
+            if cardinal in ["S", "O", "W"]:
+                dec = -dec
+            elif cardinal in ["N", "L", "E"]:
+                dec = abs(dec)
+        elif texto.strip().startswith("-"):
+            dec = -dec
+        return round(dec, 6)
+    elif len(nums) == 1:
+        val = float(nums[0].replace(",", "."))
+        if (cardinal in ["S", "O", "W"]) or texto.strip().startswith("-"):
+            val = -abs(val)
+        return round(val, 6)
+    return None
+
+
+def parse_coordenadas_dms_unificado(texto: str) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Interpreta uma única string contendo coordenadas no formato DMS (ou decimais).
+    Exemplos aceitos:
+      - 25° 25' 42.3" S • 49° 16' 23.9" O
+      - 25° 25' 42.3" S, 49° 16' 23.9" O
+      - -25.428412, -49.273301
+    """
+    if not texto or not isinstance(texto, str):
+        return None, None
+    texto = texto.strip()
+    partes = re.split(r"[•;,/|]+", texto)
+    if len(partes) >= 2:
+        lat = dms_str_para_decimal(partes[0], is_lat=True)
+        lng = dms_str_para_decimal(partes[1], is_lat=False)
+        if lat is not None and lng is not None:
+            return lat, lng
+
+    matches = list(re.finditer(r"(\d+[\s°ºdD*\-_]+\d+[\s\'’mM\':\-_]+[\d.,]+[\s\"”sS]*\s*[NSOEWnsloew]?)", texto))
+    if len(matches) >= 2:
+        lat = dms_str_para_decimal(matches[0].group(0), is_lat=True)
+        lng = dms_str_para_decimal(matches[1].group(0), is_lat=False)
+        if lat is not None and lng is not None:
+            return lat, lng
+
+    return None, None
+
+
+def decimal_para_dms(val: Any, is_lat: bool = True) -> str:
+    """
+    Retorna a representação em Graus, Minutos e Segundos (DMS) de uma coordenada decimal.
+    Exemplo: 25° 25' 42.3" S
+    """
+    if val is None:
+        return "—"
+    g, m, s, h = decimal_para_dms_componentes(val, is_lat)
+    return f"{g}° {m:02d}' {s:04.1f}\" {h}"
+
+
+def formatar_coordenadas_dms(lat: Any, lng: Any) -> str:
+    """
+    Formata latitude e longitude juntas no padrão oficial DMS (Graus, Minutos e Segundos).
+    Exemplo: 25° 25' 42.3" S • 49° 16' 23.9" O
+    """
+    if lat is None or lng is None:
+        return "—"
+    try:
+        d_lat = decimal_para_dms(float(lat), is_lat=True)
+        d_lng = decimal_para_dms(float(lng), is_lat=False)
+        return f"{d_lat} • {d_lng}"
+    except (ValueError, TypeError):
+        return f"{lat}, {lng}"
+
+
+# ==========================================
 # CAMADA DE DADOS: FIRESTORE & ARMAZENAMENTO LOCAL
 # ==========================================
 def carregar_registros_iniciais() -> List[Dict[str, Any]]:
@@ -220,6 +358,7 @@ def carregar_registros_iniciais() -> List[Dict[str, Any]]:
             "tipo_servico": "Troca de Placa",
             "latitude": -23.55052,
             "longitude": -46.633308,
+            "coordenadas_dms": formatar_coordenadas_dms(-23.55052, -46.633308),
             "foto_base64": _gerar_imagem_placeholder_base64("PLACA", "Placa R-19 (80 km/h)", "KM 142"),
             "observacoes_campo": "Placa de regulamentação com película desbotada e poste levemente inclinado após tempestade.",
             "data_envio": "2026-09-12T10:15:00",
@@ -240,6 +379,7 @@ def carregar_registros_iniciais() -> List[Dict[str, Any]]:
             "tipo_servico": "Roçada",
             "latitude": -23.5612,
             "longitude": -46.6558,
+            "coordenadas_dms": formatar_coordenadas_dms(-23.5612, -46.6558),
             "foto_base64": _gerar_imagem_placeholder_base64("ROCADA", "Roçada Faixa de Domínio", "KM 105.4"),
             "observacoes_campo": "Vegetação rasteira alta encobrindo sarjeta lateral de drenagem e linha de bordo.",
             "data_envio": "2026-09-12T11:30:00",
@@ -260,6 +400,7 @@ def carregar_registros_iniciais() -> List[Dict[str, Any]]:
             "tipo_servico": "Defensa Metálica",
             "latitude": -23.5824,
             "longitude": -46.6711,
+            "coordenadas_dms": formatar_coordenadas_dms(-23.5824, -46.6711),
             "foto_base64": _gerar_imagem_placeholder_base64("DEFENSA", "Defensa Semi-Rígida Deformada", "KM 118"),
             "observacoes_campo": "Defensa metálica com deformação acentuada após abalroamento veicular no acostamento.",
             "data_envio": "2026-09-12T13:45:00",
@@ -280,6 +421,7 @@ def carregar_registros_iniciais() -> List[Dict[str, Any]]:
             "tipo_servico": "Tapa-buraco",
             "latitude": -23.5410,
             "longitude": -46.6210,
+            "coordenadas_dms": formatar_coordenadas_dms(-23.5410, -46.6210),
             "foto_base64": _gerar_imagem_placeholder_base64("BURACO", "Panela no Pavimento", "KM 88.2"),
             "observacoes_campo": "Panela profunda na faixa de rolamento direita após período intenso de chuvas.",
             "data_envio": "2026-09-12T14:10:00",
@@ -625,7 +767,10 @@ def gerar_relatorio_docx(registros: List[Dict[str, Any]], nome_fiscal: str) -> i
 
         info_p = doc.add_paragraph()
         info_p.add_run(f"Rodovia: {reg.get('rodovia', 'BR-101')} | KM: {reg.get('km')} | Equipe: {reg.get('equipe')} | Serviço: {reg.get('tipo_servico')}\n").bold = True
-        info_p.add_run(f"Data de Envio: {reg.get('data_envio')} | Coordenadas GPS: Lat {reg.get('latitude')}, Lng {reg.get('longitude')}\n")
+        lat_v = reg.get('latitude', 0)
+        lng_v = reg.get('longitude', 0)
+        coord_docx = f"{float(lat_v):.6f}, {float(lng_v):.6f}"
+        info_p.add_run(f"Data de Envio: {reg.get('data_envio')} | Coordenadas GPS (Grau Decimal): {coord_docx}\n")
         info_p.add_run(f"Observação de Campo: {reg.get('observacoes_campo') or 'Nenhuma observação informada.'}\n")
 
         diag_p = doc.add_paragraph()
@@ -1127,18 +1272,18 @@ if st.session_state.modulo_ativo == "🚜 Tela de Campo":
             unsafe_allow_html=True,
         )
 
-    # 2. Card: Coordenadas GPS (Google Stitch Pattern)
+    # 2. Card: Coordenadas GPS (Grau Decimal)
     with st.container(border=True):
         st.markdown(
             """
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span style="font-size: 19px;">📍</span>
-                    <span style="font-size: 16px; font-weight: 700; color: #0b1c30;">Captura de GPS</span>
+                    <span style="font-size: 16px; font-weight: 700; color: #0b1c30;">Coordenadas Geográficas (Grau Decimal)</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 9999px; background-color: #b8ffce; color: #00210f; font-size: 11px; font-weight: 700;">
                     <span style="width: 7px; height: 7px; border-radius: 50%; background-color: #096138; display: inline-block;"></span>
-                    Ativo
+                    Grau Decimal (WGS84)
                 </div>
             </div>
             """,
@@ -1153,13 +1298,30 @@ if st.session_state.modulo_ativo == "🚜 Tela de Campo":
         if st.button("📍 Sincronizar Ponto GPS Atual", use_container_width=True):
             st.session_state.campo_lat = -25.428412
             st.session_state.campo_lng = -49.273301
-            st.toast("Ponto GPS sincronizado com alta precisão!")
+            st.toast("Ponto GPS sincronizado em graus decimais com alta precisão!")
+            st.rerun()
 
-        c_lat, c_lng = st.columns(2)
-        with c_lat:
-            lat = st.number_input("Latitude:", value=st.session_state.campo_lat, format="%.6f", key="input_lat_mobile")
-        with c_lng:
-            lng = st.number_input("Longitude:", value=st.session_state.campo_lng, format="%.6f", key="input_lng_mobile")
+        col_lat, col_lng = st.columns(2)
+        with col_lat:
+            lat = st.number_input(
+                "Latitude (Grau Decimal):",
+                value=float(st.session_state.campo_lat),
+                format="%.6f",
+                step=0.000001,
+                key="input_campo_lat",
+                help="Exemplo: -25.428412",
+            )
+            st.session_state.campo_lat = lat
+        with col_lng:
+            lng = st.number_input(
+                "Longitude (Grau Decimal):",
+                value=float(st.session_state.campo_lng),
+                format="%.6f",
+                step=0.000001,
+                key="input_campo_lng",
+                help="Exemplo: -49.273301",
+            )
+            st.session_state.campo_lng = lng
 
     # 3. Card: Fotografia da Ocorrência (Compressão Pillow ~240KB)
     with st.container(border=True):
@@ -1208,6 +1370,8 @@ if st.session_state.modulo_ativo == "🚜 Tela de Campo":
             f"{rodovia_sel} - {equipe_sel}"
         )
 
+        coord_dec_str = f"{float(lat):.6f}, {float(lng):.6f}"
+
         novo_registro = {
             "id": proximo_id,
             "doc_id": proximo_id,
@@ -1219,6 +1383,8 @@ if st.session_state.modulo_ativo == "🚜 Tela de Campo":
             "tipo_servico": tipo_sel,
             "latitude": float(lat),
             "longitude": float(lng),
+            "coordenadas_decimais": coord_dec_str,
+            "coordenadas_dms": formatar_coordenadas_dms(lat, lng),
             "foto_base64": b64_salvar,
             "observacoes_campo": obs_campo.strip(),
             "data_envio": datetime.now().isoformat(),
@@ -1656,9 +1822,10 @@ else:
                             st.info("Sem fotografia disponível para este ativo.")
 
                         # Metadados de Campo em Caixa Estruturada
-                        lat = item.get("latitude", 0)
-                        lng = item.get("longitude", 0)
+                        lat = float(item.get("latitude", 0))
+                        lng = float(item.get("longitude", 0))
                         data_formatada = item.get("data_envio", "")[:16].replace("T", " às ")
+                        coord_dec_exibicao = f"{lat:.6f}, {lng:.6f}"
 
                         st.markdown(
                             f"""
@@ -1677,8 +1844,8 @@ else:
                                     <span class="stitch-meta-val">{item.get('rodovia', 'BR-277')} • KM {item.get('km', '—')}</span>
                                 </div>
                                 <div class="stitch-meta-row">
-                                    <span class="stitch-meta-label">📍 Coordenadas GPS:</span>
-                                    <span class="stitch-meta-val" style="font-family: monospace;">{lat:.5f}, {lng:.5f}</span>
+                                    <span class="stitch-meta-label">📍 Coordenadas (Grau Decimal):</span>
+                                    <span class="stitch-meta-val" style="font-family: monospace; font-weight: 700; color: #096138;">{coord_dec_exibicao}</span>
                                 </div>
                                 <div class="stitch-meta-row">
                                     <span class="stitch-meta-label">📅 Data / Hora:</span>
@@ -1690,7 +1857,7 @@ else:
                         )
 
                         # Link Google Maps
-                        st.markdown(f"🌐 [Abrir Ponto no Google Maps]({'https://www.google.com/maps?q=' + str(lat) + ',' + str(lng)})", unsafe_allow_html=True)
+                        st.markdown(f"🌐 [Abrir Ponto no Google Maps ({coord_dec_exibicao})]({'https://www.google.com/maps?q=' + str(lat) + ',' + str(lng)})", unsafe_allow_html=True)
 
                         # Observações de Campo
                         obs_texto = item.get("observacoes_campo") or "Nenhuma anomalia crítica reportada em campo."
@@ -1865,5 +2032,20 @@ else:
         if pontos_mapa:
             df_mapa = pd.DataFrame(pontos_mapa)
             st.map(df_mapa, zoom=10)
+            with st.expander("📍 Tabela de Ativos e Coordenadas em Grau Decimal", expanded=False):
+                lista_ativos = []
+                for r in registros:
+                    lat_num = float(r.get("latitude", 0))
+                    lng_num = float(r.get("longitude", 0))
+                    lista_ativos.append({
+                        "ID": r.get("id"),
+                        "Rodovia": r.get("rodovia", "—"),
+                        "KM": r.get("km", "—"),
+                        "Latitude": f"{lat_num:.6f}",
+                        "Longitude": f"{lng_num:.6f}",
+                        "Serviço": r.get("tipo_servico", "—"),
+                        "Equipe": r.get("equipe", "—"),
+                    })
+                st.dataframe(pd.DataFrame(lista_ativos), use_container_width=True, hide_index=True)
         else:
             st.info("Nenhuma coordenada válida disponível para visualização no mapa.")
